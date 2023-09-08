@@ -40,7 +40,12 @@ Basic instructions:
      - interventions_ITN.csv - For usage-dependent bednet distributions, also include:
          - interventions_ITN_age.csv     - age pattern of net usage
          - interventions_ITN_season.csv  - seasonal pattern of net usage
-6. Run site_setup with step = 'burnin'. Copy experiment-id to burnin_id
-7. Run site_setup with step = 'pickup'. Copy experiment-id to pickup_id
-8. Run site_setup with step = 'calibrate' or 'analyze_pickup'. Results will be stored in simulation_outputs/site_name/exp_label
-9. **For now** use plot_site_setup.Rmd to visualize outputs
+6. Configure the habitat space you would like to sweep over. In the "OPTIONS" block of site_setup.py, select a list of values for:  
+     - scale_temp_rain
+     - scale_water_veg
+     - scale_constant (usually left as [1.0])
+     - xTLH 
+7. Run site_setup.py with step = 'burnin'. Copy experiment-id to burnin_id
+8. Run site_setup.py with step = 'pickup'. Copy experiment-id to pickup_id
+9. Run site_setup.py with step = 'calibrate' or 'analyze_pickup'. Results will be stored in simulation_outputs/site_name/exp_label
+10. **For now** use plot_site_setup.Rmd to visualize outputs
