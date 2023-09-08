@@ -1,1 +1,1 @@
-# EMOD_spatial_example
+# FE Project Template
