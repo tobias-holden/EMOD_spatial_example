@@ -1,0 +1,252 @@
+---
+title: "Vector Habitat Exploration"
+author: "Tobias Holden"
+date: "8/24/2023"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(data.table)
+```
+
+# Load & Clean Data
+
+```{r}
+exp_names <- c('sapone/hab_sweep_3')
+
+inset_chart <- fread(paste('simulation_output',exp_names[1],'InsetChart.csv',sep='/'))
+monthly_report <- fread(paste('simulation_output',exp_names[1],'AllAge_MonthlySummaryReport.csv',sep='/'))
+event_report <- fread(paste('simulation_output',exp_names[1],'CountedEvents.csv',sep='/'))
+
+if((length(exp_names)>1)){
+    for(i in 2:length(exp_names)){
+      temp <- fread(paste('simulation_output',exp_names[i],'All_Age_InsetChart.csv',sep='/'))
+      inset_chart <- rbind.data.frame(inset_chart,temp)
+      temp <- fread(paste('simulation_output',exp_names[i],'AllAge_MonthlySummaryReport.csv',sep='/'))
+      monthly_report <- rbind.data.frame(monthly_report,temp)
+      remove(temp)
+      temp <- fread(paste('simulation_output',exp_names[i],'CountedEvents.csv',sep='/'))
+      event_report <- rbind.data.frame(month_report,temp)
+    }
+  }
+
+colnames(inset_chart) <- gsub(" ","_",colnames(inset_chart))
+```
+
+# Events
+```{r}
+event_report %>%
+  select(-c(experiment, Run_Number)) %>%
+  mutate(hab_mix=interaction(scale_constant,scale_temp_rain,scale_water_veg)) %>%
+  filter(hab_mix==sample(hab_mix,1)) %>%
+  select(-c(scale_temp_rain, scale_constant,scale_water_veg)) %>%
+  group_by(Node, Time, x_Temporary_Larval_Habitat, hab_mix) %>%
+  summarize_all(mean) %>%
+  gather("event","count", 5:9) %>%
+  mutate(proportion = count/1000) %>%
+  #filter(event != "Received_Treatment") %>%
+  ggplot(aes(x=Time, y=count, color=factor(event))) +
+  facet_grid(gsub("_","\n",event)~paste("Node",Node), scales="free") +
+  #facet_wrap(factor(grepl("Bednet",event),labels=c("Treatment","Bednets"))~paste("Node",Node), scales="free_y") +
+  geom_line(aes(group=interaction(hab_mix,x_Temporary_Larval_Habitat,Node))) +
+  theme_minimal(base_size=14) +
+  labs(color=NULL) +
+  theme(legend.position="bottom") +
+  guides(color=guide_legend(nrow = 2, byrow = T))
+```
+
+
+# Calibration Targets
+
+```{r}
+
+#pcr_targets = data.frame(date = c("1961-06-01","1962-01-01", "1962-08-01"),
+#                           PCR_Parasite_Prevalence = c(0.7,0.9,0.75))
+pcr_targets = data.frame(date = as.IDate(c("2018-08-15", "2019-01-15","2019-05-15","2020-01-15")),
+                                PCR_Parasite_Prevalence=c(0.6384040,0.5741445, 0.3658537, 0.4871795))
+pcr_targets %>% gather("variable","reference_value",2) %>% mutate(date=as.Date(date)) -> pcr_targets
+
+
+#incidence_targets = data.frame(month=seq(1,24,1),
+#                               Cases=c(2,3,3,4,6,22,35,80,88,50,10,4,2,3,3,4,6,22,35,80,88,50,10,4))
+incidence_targets = read.csv("/projects/b1139/indie_emodpy/simulation_inputs/reference_data/passive_seasonality.csv")
+incidence_targets %>% mutate(month = month %% 12) %>% mutate(month=ifelse(month==0,12,month)) -> incidence_targets
+incidence_targets %>% group_by(month) %>% summarize_all(mean) -> incidence_targets
+incidence_targets %>% gather("variable","reference_value",2:3) -> incidence_targets
+
+
+incidence_targets %>% group_by(variable) %>% mutate(reference_value = (reference_value)
+                                                    /(max(reference_value))) -> incidence_targets
+
+incidence_targets %>% filter(variable=="num.presenting") %>% mutate(variable="Cases") -> incidence_targets
+
+
+```
+
+# Scoring & Selection
+
+```{r}
+monthly_report %>%
+  mutate(month=month%%12) %>% mutate(month=ifelse(month ==0, 12, month)) %>%
+  filter(month %in% incidence_targets$month) %>%
+  select(month, Cases, x_Temporary_Larval_Habitat, scale_constant, scale_temp_rain, scale_water_veg) %>%
+  group_by(month, x_Temporary_Larval_Habitat, scale_constant, scale_temp_rain, scale_water_veg) %>%
+  summarize_all(mean) %>%
+  gather("variable","simulation_value",6) %>%
+  group_by(x_Temporary_Larval_Habitat, scale_constant, scale_temp_rain, scale_water_veg) %>%
+  mutate(group_min=min(simulation_value), group_max=max(simulation_value)) %>%
+  ungroup() %>%
+  mutate(simulation_value2=(simulation_value-group_min)/(group_max-group_min)) %>%
+  left_join(incidence_targets, by=c("month","variable")) %>%
+  mutate(diff= abs(simulation_value-reference_value)) %>%
+  group_by(x_Temporary_Larval_Habitat,scale_constant,scale_temp_rain,scale_water_veg) %>% 
+  mutate(score=mean(diff,na.rm=T)) %>%
+  group_by(month) %>%
+  mutate(rank=rank(score,ties.method = "first")) -> incidence_rankings
+
+inset_chart %>% 
+  filter(date %in% pcr_targets$date) %>%
+  mutate(date = as.Date(date)) %>%
+  select(date, PCR_Parasite_Prevalence, x_Temporary_Larval_Habitat, scale_constant, scale_temp_rain, scale_water_veg) %>%
+  group_by(x_Temporary_Larval_Habitat, scale_constant, scale_temp_rain, scale_water_veg, date) %>% 
+  summarize_all(mean) %>%
+  gather("variable","simulation_value",6) %>%
+  left_join(pcr_targets, by = c("date","variable")) %>%
+  mutate(diff=abs(simulation_value-reference_value)) %>%
+  group_by(x_Temporary_Larval_Habitat,scale_constant,scale_temp_rain,scale_water_veg) %>% 
+  mutate(score=mean(diff,na.rm=T)) %>%
+  group_by(date) %>%
+  mutate(rank=rank(score,ties.method = "first")) -> pcr_rankings
+
+pcr_rankings %>% 
+  ungroup() %>%
+  filter(!duplicated(rank)) %>% 
+  select(x_Temporary_Larval_Habitat,scale_constant,scale_temp_rain,scale_water_veg, score) %>% mutate(score=score) -> pcr_rankings
+
+incidence_rankings %>%
+  ungroup() %>%
+  filter(!duplicated(rank)) %>%
+  select(x_Temporary_Larval_Habitat,scale_constant, scale_temp_rain, scale_water_veg, score) %>%
+  rename(incidence_score=score)-> incidence_rankings
+
+
+pcr_rankings %>% 
+  left_join(incidence_rankings) %>%
+  mutate(combined_score = (2*score+incidence_score)/3) %>%
+  mutate(rank=rank(combined_score,ties.method = "first")) -> habitat_rankings
+
+cutoff_rank = 20
+cutoff_combined_score = 0.24
+
+
+habitat_rankings %>%
+  ggplot(aes(x=factor(scale_temp_rain),y=factor(scale_water_veg))) +
+  facet_wrap(~as.numeric(x_Temporary_Larval_Habitat)) +
+  geom_tile(color="white", aes(fill=combined_score)) +
+  geom_tile(data=habitat_rankings %>% filter(rank<=cutoff_rank), fill="transparent",color="black",size=1) +
+  scale_fill_distiller(palette = "Spectral")
+
+
+
+
+
+inset_chart %>%
+  left_join(habitat_rankings) %>%
+  #filter(rank<=cutoff_rank) %>%
+  filter(combined_score <= cutoff_combined_score) %>%
+  #filter(score <= cutoff_score) %>%
+  filter(Time >= max(Time)-365*2) %>%
+  group_by(rank,date) %>%
+  summarize(PCR_Parasite_Prevalence=mean(PCR_Parasite_Prevalence)) %>%
+  ggplot(aes(x=date, y=PCR_Parasite_Prevalence)) +
+  geom_path(aes(group=rank, color=rank)) +
+  geom_point(data=pcr_targets, aes(x=date,y=reference_value), size=3) +
+  theme_minimal() -> pcr_prevalence_plot
+
+monthly_report %>%
+  left_join(habitat_rankings) %>%
+  #filter(rank <= cutoff_rank) %>%
+  filter(combined_score<=cutoff_combined_score) %>%
+  select(month, Cases, rank) %>%
+  mutate(month = month %% 12) %>%
+  mutate(month = ifelse(month==0,12,month)) %>%
+  group_by(rank,month) %>%
+  summarize(Cases = mean(Cases)) %>%
+  group_by(rank) %>%
+  mutate(Cases=(Cases)/(max(Cases))) %>%
+  ggplot(aes(x=month,y=Cases)) +
+  geom_path(aes(group=rank, color=rank)) +
+  geom_point(data=incidence_targets,aes(x=month,y=reference_value)) +
+  theme_minimal() -> incidence_plot
+
+library(patchwork)
+
+(pcr_prevalence_plot + theme(legend.position="none")) / (incidence_plot + theme(legend.position="bottom"))
+
+
+habitat_rankings %>%
+  #filter(rank<=10) %>%
+  ggplot(aes(x=factor(scale_temp_rain),y=factor(scale_water_veg))) +
+  facet_wrap(~x_Temporary_Larval_Habitat,scales="free") +
+  geom_tile(aes(fill=combined_score), color="black") +
+  geom_tile(data= habitat_rankings %>% filter(combined_score <=cutoff_combined_score),fill=NA,color="black", size=1) + 
+  scale_fill_distiller(palette = "Spectral") +
+  theme_minimal()
+
+
+```
+
+
+# All Variables
+
+```{r}
+monthly_report %>% 
+  left_join(habitat_rankings) %>%
+  #filter(rank <= cutoff_rank) %>%
+  filter(combined_score<=cutoff_combined_score) %>%
+  select(rank,month,Cases, annualeir, PfPR, PfPR_2to10) %>%
+  group_by(rank,month) %>%
+  summarize_all(mean) %>%
+  gather("variable","simulation_value", 3:6) %>%
+  ungroup() %>%
+  group_by(variable,rank) %>%
+  mutate(min=min(simulation_value), max=max(simulation_value)) %>%
+  ungroup() %>%
+  filter(month<=12) %>%
+  group_by(rank) %>%
+  mutate(simulation_value=ifelse(variable=="Cases",(simulation_value-min)/(max-min), simulation_value)) %>%
+  ggplot(aes(x=month,y=simulation_value)) + 
+  geom_path(aes(group=rank, color=rank),alpha=0.5) +
+  facet_wrap(~variable, scales="free_y", ncol=2) +
+  geom_point(data=incidence_targets, aes(y=reference_value)) +
+  labs(shape=NULL) +
+  theme_minimal() + 
+  theme(legend.position="right") -> monthly_plots
+
+inset_chart %>%
+  select(-c(Time, Day, Year, Run_Number, New_Clinical_Cases)) %>% 
+  left_join(habitat_rankings %>% select(-c(score,incidence_score))) %>%
+  filter(combined_score<=cutoff_combined_score) %>%
+  #filter(rank<=cutoff_rank) %>%
+  select(-c(x_Temporary_Larval_Habitat,scale_constant,scale_temp_rain,scale_water_veg, combined_score)) %>%
+  group_by(rank, date) %>%
+  summarize_all(mean) %>%
+  gather("variable","simulation_value", 3:9) %>%
+  ungroup() %>%
+  filter(date>="2018-08-01") %>%
+  ggplot(aes(x=date,y=simulation_value)) +
+  facet_wrap(~variable, ncol=2, scale="free_y") +
+  geom_path(aes(group=rank, color=rank),alpha=0.5) +
+  geom_point(data=pcr_targets, aes(y=reference_value)) +
+  theme_minimal() +
+  theme(legend.position="none") +
+  scale_x_date(date_breaks="6 months", date_labels = "%b\n'%y") -> daily_plots
+
+  
+daily_plots | monthly_plots
+
+```
