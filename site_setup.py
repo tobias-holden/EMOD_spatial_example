@@ -14,6 +14,8 @@ from idmtools.assets import Asset, AssetCollection                              
 from idmtools.builders import SimulationBuilder                                         #
 from idmtools.core.platform_factory import Platform                                     #
 from idmtools.entities.experiment import Experiment                                     #
+from idmtools_calibra.utilities.ll_calculators import beta_binomial                     #
+from idmtools_calibra.utilities.ll_calculators import gamma_poisson                     #
 ##### emodpy ############################################################################                                  
 from emodpy.emod_task import EMODTask                                                   #
 from emodpy.utils import EradicationBambooBuilds                                        #
@@ -30,6 +32,7 @@ import emodpy_malaria.interventions.treatment_seeking as cm                     
 import emodpy_malaria.interventions.usage_dependent_bednet as itn                       #
 import emodpy_malaria.interventions.irs as irs                                          #
 import emodpy_malaria.interventions.drug_campaign as dc                                 #
+import emodpy_malaria.interventions.diag_survey as ds                                   #
 import emodpy_malaria.malaria_config as malaria_config                                  #
 ##### from manifest #####################################################################
 import manifest                                                                         #
@@ -53,16 +56,26 @@ from utils_slurm import build_burnin_df                                         
 # hab_sweep_1: 50 year burnin with xTLH 1.25-1.75; scale_temp_rain 5-50; scale_water_veg 0-5 (climate 2010-2019)
 #   - burnin: c0b37c6e-e8d7-4949-8997-bf08ed89dc57 
 #   - pickup: b7f7d059-31ca-4d6d-ba90-110588925d5e
-# hab_sweep_2: 50 year burnin with xTLH 1.5-2.05; scale_temp_rain 5-50; scale_water_veg 0-5 (climate 2010-2019)
+# hab_sweep_2: 50 year burnin with xTLH 1.5-2.05; scale_temp_rain 5-50; scale_water_veg 0-5 (climate 2010-2019, 30 degrees)
 #   - burnin: 1ad4f2c1-8f92-4753-bbda-e3e03437108b 
 #   - pickup: dafd4104-e37e-4b55-8827-a7899c5098eb
-# hab_sweep_3: 50 year burnin with xTLH 1.85-2.15; scale_temp_rain 5-100; scale_water_veg 0-2.5 (climate 2010-2019)
+# hab_sweep_3: 50 year burnin with xTLH 1.85-2.15; scale_temp_rain 5-100; scale_water_veg 0-2.5 (climate 2010-2019, 30 degrees)
 # 7ed8f94d-6823-43ee-97e4-760d7402d559 
 #   - burnin: 7ed8f94d-6823-43ee-97e4-760d7402d559
 #   - pickup: 1e0df0da-aade-472b-b34c-1143c828453c 
-# hab_sweep_4: 50 year burnin with xTLH 1.85-2.15; scale_temp_rain 5-100; scale_water_veg 0-2.5 (climate 2018-2018)
+# hab_sweep_4: 50 year burnin with xTLH 1.85-2.15; scale_temp_rain 5-100; scale_water_veg 0-2.5 (climate 2018-2018, 30 degrees)
 #   - burnin: 41993724-b880-446e-bd9b-369dc1a35f25
-#   - pickup:
+#   - pickup: ae8b69b3-995b-4485-9ba0-41aa1a233233
+# hab_sweep_5: 50 year burnin with xTLH 1.95-2.25; scale_temp_rain 10-200; scale_water_veg 0-0.5 (climate 2018-2018, 30 degrees)
+#   - burnin: 4364c246-606b-4d30-a9dc-56657680df70
+#   - pickup: 59b760ae-592c-4350-96d3-719f22a04a4a
+# hab_sweep_6: 50 year burnin with xTLH 1.95-2.25; scale_temp_rain 10-200; scale_water_veg 0-0.5 (climate 2018-2018, 27 degrees) - updated birthRate 30 -> 38
+#   - burnin: 0a691c24-9401-4cca-9a99-6f271c74764e
+#   - pickup: 4f2aeb03-e762-4d26-96f6-a81896be79f8
+#   - pickup: 96451a07-95db-4724-8249-27f9e9d5047b (with ECCM - to test, 1 seed)
+# test_age_distribution_analyzer 
+#   - burnin: c6249a91-d4b1-4fec-895d-f9fe7bcaad00
+#   - pickup: ee104986-388c-4abf-9f6c-881ab43f7816
 ######################################################################################################################
 ######################################################################################################################
 ######################################################################################################################
@@ -73,17 +86,17 @@ from utils_slurm import build_burnin_df                                         
 # OPTIONS ###############################################################
 #########################################################################
 site_name = 'sapone'                                                    # Existing or new site to request climate data for
-birth_rate= 30.0                                                        # Birth Rate (per 1,000) to apply for FIXED_BIRTH_RATE, which is default in the simulation below
-step = 'burnin'                                                         # Which step of the process: setup_climate? setup_migration? 
+birth_rate= 38.0                                                        # Birth Rate (per 1,000) to apply for FIXED_BIRTH_RATE, which is default in the simulation below
+step = 'score'                                                      # Which step of the process: setup_climate? setup_migration? 
                                                                         # burnin? pickup? calibration? (also analyze_burnin for burnin < 10 years)
 burnin_years = 50                                                       #
 pickup_years = 10                                                       #
-num_seeds = 5                                                           # number of random seeds / stochastic realizations in pickup
-memory_limit = 4000                                                     # in MB, limit set for EMOD config parameter and QUEST resource allocation 
+num_seeds = 1                                                           # number of random seeds / stochastic realizations in pickup
+memory_limit = 6000                                                     # in MB, limit set for EMOD config parameter and QUEST resource allocation 
 ##### Experiment Specifications #########################################
-exp_label = 'hab_sweep_4'                                               # added label for outputs
-burnin_id = '41993724-b880-446e-bd9b-369dc1a35f25'                      # Single-Node Ex. hab_sweep_1 (site 'sapone' with climate from 2010-2019)
-pickup_id = ''                      # 
+exp_label = 'ECCM_test'                                                 # added label for outputs
+burnin_id = '0a691c24-9401-4cca-9a99-6f271c74764e'                      # Single-Node Ex. hab_sweep_1 (site 'sapone' with climate from 2010-2019)
+pickup_id = '96451a07-95db-4724-8249-27f9e9d5047b'                      # 
 exp_name = "_".join((site_name,exp_label))                              # Label metadata "experiment_name"
 ##### Input files #######################################################
 vector_file = 'vectors.csv'                                             # Vector species relative abundance and habitat accessibility
@@ -95,34 +108,34 @@ migration_files ={# migration_type & migration_filename w/out extension #
                                     'vector_local_migration']}          #
 migration_files = pd.DataFrame(migration_files)                         # Row 0 = human local migration, Row 1 = vector local migration
 ##################################################### Interventions #####
-cm_file = 'interventions_CM.csv'                                        # Case management: coverage by age
-smc_file = 'interventions_SMC.csv'                                      # SMC: coverage by round
-itn_file = 'interventions_ITN.csv'                                      # Bednets: distribution coverages and insecticide properties
-itn_age_file = 'interventions_ITN_age.csv'                              # Bednets: Age-specific usage
-itn_season_file = 'interventions_ITN_season.csv'                        # Bednets: Seasonal usage
-irs_file = 'interventions_IRS.csv'                                      # IRS Housing Modification (scheduled)
+cm_file = 'case_management.csv'                                         # Case management: coverage by age
+smc_file = 'SMC.csv'                                                    # SMC: coverage by round
+itn_file = 'ITN.csv'                                                    # Bednets: distribution coverages and insecticide properties
+itn_age_file = 'ITN_age.csv'                                            # Bednets: Age-specific usage
+itn_season_file = 'ITN_season.csv'                                      # Bednets: Seasonal usage
+irs_file = 'IRS.csv'                                                    # IRS Housing Modification (scheduled)
+fever_screening_file = 'ECCM.csv'                                       #
 ############################################## Reference data files ##### 
-incidence_file = 'reference_monthly_incidence_allAge.csv'               # Incidence data to match to Monthly SummaryReport
-pcr_prevalence_file = 'reference_pcr_prevalence_allAge.csv'             # Prevalence data to match to InsetChart
+incidence_file = 'monthly_cases.csv'                         # Incidence data to match to Monthly SummaryReport
+pcr_prevalence_file = 'pcr_prevalence_allAge.csv'                       # Prevalence data to match to InsetChart
 ###### Outputs ##########################################################
 events_to_record = ["Received_SMC",                                     # Events to Record in Custom_Individual_Events [] and ReportEventCounter(Event_Trigger_List[])
                     "Received_Treatment",                               #
                     "Bednet_Got_New_One",                               #
                     "Bednet_Using",                                     #
-                    "Bednet_Discarded"]                                 # 
-sweep_variables = ['Run_Number',                                        # Grouping variables for outputs (must be in simulation metadata)
-                   'x_Temporary_Larval_Habitat',                        #
+                    "Bednet_Discarded",
+                    "Fever_Screen","Fever_Screen_Positive",
+                    "Fever_Screen_Treated"]                             # 
+sweep_variables = ['x_Temporary_Larval_Habitat',                        # Grouping variables for outputs (must be in simulation metadata)
                    'scale_constant',                                    #
                    'scale_temp_rain',                                   #
                    'scale_water_veg']                                   #   
 channels_inset_chart = ['Statistical Population',                       # Output variables to include from InsetChart (and/or SpatialReport?)
-                        'Adult Vectors',                                #
                         'Daily Bites per Human',                        #
                         'Daily EIR',                                    #
                         'Rainfall',                                     # 
                         'Air Temperature',                              #
-                        'PCR Parasite Prevalence',                      #
-                        'New Clinical Cases']                           #
+                        'PCR Parasite Prevalence']                           #
 output_folder = os.path.join('simulation_output',site_name,exp_label)   # Folder to store outputs in
 os.makedirs(output_folder,exist_ok=True)                                #
 report_years = 2                                                        # Limit to final n years of pickup in non-InsetChart reports of pickup
@@ -131,13 +144,13 @@ report_years = 2                                                        # Limit 
 climate_start = "2018"                                                  # From Day 1 of this year ...
 climate_end = "2018"                                                    # ... to Day 365 of this year
 ####################################################### Adjustments #####
-temperature = 30.0                                                      # Set Constant Temperature. 'None' will use ERA5 temperature series
+temperature = 27.0                                                      # Set Constant Temperature. 'None' will use ERA5 temperature series
 rain_shift = None                                                       # Shift rainfall series by n days (**in testing)
 ##### Larval Habitat Space ##############################################
-scale_water_veg = [0.0,0.1,0.5,1.0,2.5]                             # Amount of Water_Vegetation relative to Constant 
-scale_temp_rain = [5.0,10.0,25.0,50.0,100.0]                              # Amount of Temporary_Rainfall relative to Constant 
+scale_water_veg = [0.0,0.05,0.1,0.25,0.5]                               # Amount of Water_Vegetation relative to Constant 
+scale_temp_rain = [10.0,25.0,50.0,100.0,150.0,200.0]                    # Amount of Temporary_Rainfall relative to Constant 
 scale_constant = [1.0]                                                  # Amount of Constant relative to Base of 5e5. Typically left as [1.0] 
-xTLH_range = list(np.logspace(1.85,2.15,20))                            # Note: x_Temporary_Larval_Habitat scales ALL habitat types, including constant
+xTLH_range = list(np.logspace(1.95,2.25,10))                            # Note: x_Temporary_Larval_Habitat scales ALL habitat types, including constant
                                                                         # 
 habitat_df = pd.DataFrame(zip(product(scale_constant,                   # Generate or refresh habitat dataframe
                                       scale_temp_rain,                  #
@@ -255,9 +268,9 @@ def build_camp(habitat=-1, scale_start_day=1):                                  
     vector_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,vector_file))                                        #                                                                 # 
     lh_scales= scale_habitat_from_df(df=habitat_df,vdf=vector_df,index=habitat)                                            #
     add_scale_larval_habitats(camp, df=lh_scales, start_day=scale_start_day, repetitions=-1)                               # scale habitats by TYPE for all species according to habitat_df (sweep) and vector_df (observed fraction)
-    ##### Case management ##################################################################################################                                      
-    if os.path.exists(os.path.join(manifest.input_dir,site_name,cm_file)):                                                 #
-        cm_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,cm_file))                                            # Read cm_file
+    ##### Case management ##################################################################################################                             
+    if os.path.exists(os.path.join(manifest.input_dir,site_name,"interventions",cm_file)):                                 #
+        cm_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,"interventions",cm_file))                            # Read cm_file
         nodes = [n for n in cm_df['node_id'].unique()]                                                                     #
         for node in nodes:                                                                                                 # For each node...
             cm_df = cm_df[cm_df['node_id']==node]                                                                          #
@@ -283,15 +296,15 @@ def build_camp(habitat=-1, scale_start_day=1):                                  
                                            targets=targets,                                                                #
                                            broadcast_event_name="Received_Treatment")                                      #
     ##### ITNs - Usage Dependent by AGE and SEASON #########################################################################
-    if os.path.exists(os.path.join(manifest.input_dir,site_name,itn_file)):                                                #
-        itn_df = pd.read_csv(os.path.join(manifest.input_dir,site_name, itn_file))                                         # Read itn_file
+    if os.path.exists(os.path.join(manifest.input_dir,site_name,"interventions",itn_file)):                                #
+        itn_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,"interventions", itn_file))                         # Read itn_file
         nodes = [n for n in itn_df['node_id'].unique()]
         for node in nodes:
             itn_df = itn_df[itn_df['node_id']==node]
             itn_df = itn_df[itn_df['phase']==step].reset_index()                                                           # Filter to burnin or pickup
             if len(itn_df) > 0:                                                                                            #
-                itn_age = pd.read_csv(os.path.join(manifest.input_dir,site_name,itn_age_file))                             # Read age dependence file
-                itn_season = pd.read_csv(os.path.join(manifest.input_dir,site_name,itn_season_file))                       # Read seasonal dependence file - **currently assumes same seasonal pattern for all years**
+                itn_age = pd.read_csv(os.path.join(manifest.input_dir,site_name,"interventions",itn_age_file))             # Read age dependence file
+                itn_season = pd.read_csv(os.path.join(manifest.input_dir,site_name,"interventions",itn_season_file))       # Read seasonal dependence file - **currently assumes same seasonal pattern for all years**
                 itn_seasonal_usage = {"Times": list(itn_season['season_time']),                                            #
                                       "Values":list(itn_season['season_usage'])}                                           #
                 for year in itn_df['year']:                                                                                # For each year ...
@@ -315,8 +328,8 @@ def build_camp(habitat=-1, scale_start_day=1):                                  
                                                              seasonal_dependence = itn_seasonal_usage,                     # - Seasonal effect on usage
                                                              discard_config = itn_discard_config)                          # - Discard probability
     ##### SMC ##############################################################################################################
-    if os.path.exists(os.path.join(manifest.input_dir,site_name,smc_file)):                                                #
-        smc_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,smc_file), encoding='latin')                        # Read smc_file
+    if os.path.exists(os.path.join(manifest.input_dir,site_name,"interventions",smc_file)):                                #
+        smc_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,"interventions",smc_file), encoding='latin')        # Read smc_file
         nodes = [n for n in smc_df['node_id'].unique()]                                                                    #
         for node in nodes:                                                                                                 #
             smc_df = smc_df[smc_df['node_id']==node]                                                                       #
@@ -336,8 +349,8 @@ def build_camp(habitat=-1, scale_start_day=1):                                  
                                          target_group={'agemin': 5, 'agemax': 6},                                          # Ages 5-6
                                          receiving_drugs_event_name="Received_SMC")                                        #
     ##### IRS ##############################################################################################################
-    if os.path.exists(os.path.join(manifest.input_dir,site_name,irs_file)):                                                #
-        irs_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,irs_file))                                          # read irs_file
+    if os.path.exists(os.path.join(manifest.input_dir,site_name,"interventions",irs_file)):                                #
+        irs_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,"interventions",irs_file))                          # read irs_file
         nodes = [n for n in irs_df['node_id'].unique()]                                                                    #
         for node in nodes:                                                                                                 #
             irs_df = irs_df[irs_df['node_id']==node]                                                                       #        
@@ -353,6 +366,35 @@ def build_camp(habitat=-1, scale_start_day=1):                                  
                                                                repelling_initial_effect=float(irs_df['repel_effect'][r]),  #
                                                                repelling_box_duration= int(irs_df['repel_duration'][r]),   #
                                                                repelling_decay_time_constant=int(irs_df['repel_decay'][r]))#
+    if os.path.exists(os.path.join(manifest.input_dir,site_name,"interventions",fever_screening_file)):
+        fever_screen_df = pd.read_csv(os.path.join(manifest.input_dir,site_name,"interventions",fever_screening_file))
+        
+        nodes = [n for n in fever_screen_df['node_id'].unique()]
+        for node in nodes:
+            fever_screen_df = fever_screen_df[fever_screen_df['node_id']==node]
+            fever_screen_df = fever_screen_df[fever_screen_df['phase']==step].reset_index()
+            earliest = min(fever_screen_df['sim_day'])
+            if len(fever_screen_df) > 0:
+                for r in range(len(fever_screen_df)):
+                    ds.add_diagnostic_survey(camp, node_ids=[int(node)],
+                                             coverage=float(fever_screen_df['coverage'][r]), 
+                                             repetitions= int(fever_screen_df['rounds'][r]), 
+                                             tsteps_btwn_repetitions=int(fever_screen_df['frequency'][r]), 
+                                             start_day=int(fever_screen_df['sim_day'][r]),
+                                             diagnostic_type=str(fever_screen_df['diagnostic'][r]), 
+                                             diagnostic_threshold=float(fever_screen_df['threshold'][r]), 
+                                             measurement_sensitivity=float(fever_screen_df['sensitivity'][r]), 
+                                             event_name=str(fever_screen_df['event_name'][r]), 
+                                             positive_diagnosis_configs=[{"class": "BroadcastEvent",
+                                                                          "Broadcast_Event": str(fever_screen_df['positive_test_event_name'][r])}],
+                                             received_test_event=str(fever_screen_df['received_test_event_name'][r]))
+                
+            dc.add_drug_campaign(camp, node_ids=[int(node)], campaign_type = "MSAT", drug_code = "AL",
+                                     coverage=1.0, start_days = [earliest],
+                                     diagnostic_type = "PF_HRP2", diagnostic_threshold=0.5,
+                                     trigger_condition_list = [str(e) for e in fever_screen_df['positive_test_event_name'].unique()],
+                                     receiving_drugs_event_name="Fever_Screen_Treated")
+            
     return camp                                                                                                            #
                                                                                                                            # #####################################
 def update_campaign_multiple_parameters(simulation, habitat_index, scale_start_day):                                       # update_campaign_multiple_parameters()
@@ -406,9 +448,9 @@ def general_sim(selected_platform):                                             
                             time='6:00:00',max_running_jobs=200, mem=memory_limit,                                         # (do not exceed 100 max_running_jobs)
                             modules=['singularity'])                                                                       #
     if(step=="pickup"):                                                                                                    # Specifications for pickup simulations
-        platform = Platform(selected_platform, job_directory=manifest.job_directory,                                       #                                            
-                            partition='b1139', account='b1139',                                                            # Use p30781 if you have access for shorter simulations
-                            time='4:00:00',max_running_jobs=200, mem=memory_limit,                                         #
+        platform = Platform(selected_platform, job_directory=manifest.job_directory,                                       # 
+                            partition='short', account='p30781',                                                           # Use p30781 if you have access for shorter simulations
+                            time='4:00:00',max_running_jobs=2000, mem=memory_limit,                                        #
                             modules=['singularity'])                                                                       #
     ##### Task #############################################################################################################
     print("Creating EMODTask (from files)...")                                                                             #
@@ -461,6 +503,12 @@ def general_sim(selected_platform):                                             
                                    pretty_format=True,                                                                     #
                                    filename_suffix='Monthly_AllAge',                                                       #
                                    max_number_reports=report_years*12+1)                                                   # **(+1 to catch January of following year)** 
+        add_malaria_summary_report(task, manifest, start_day = (pickup_years-1)*365, end_day=pickup_years*365,                 #  - Malaria Summary Report for Age Distribution
+                                   reporting_interval=1,                                                                   # - daily
+                                   age_bins = [0.5,1,2,5,10,15,20,25,50,75,100],                                           # - age bins of interest (max)
+                                   max_number_reports=365,
+                                   pretty_format=True, filename_suffix='Daily') 
+        
         demo = pd.read_csv(os.path.join(manifest.input_dir,site_name,'demographics.csv'))
         for n in demo['node_id'].unique(): 
             add_report_event_counter(task, manifest,
@@ -489,9 +537,8 @@ def analyze_pickup(pickup_id=pickup_id, output_folder=output_folder,            
                    sweep_variables = sweep_variables,                                              #
                    EventCounter = True,
                    InsetChart = True, channels_inset_chart=channels_inset_chart, start_year = 2010,# 
-                   MonthlyReport = True, report_years=report_years):                               # 
-    from analyzers.habitat_analyzer import InsetChartAnalyzer, MonthlyAnalyzer                     # 
-    from analyzers.EventAnalyzer import EventCounterAnalyzer
+                   MonthlyReport = True, report_years=report_years,
+                   AgeReport = True):                                                              # 
     from idmtools.entities import IAnalyzer	                                                       #
     from idmtools.entities.simulation import Simulation                                            #
     from idmtools.analysis.analyze_manager import AnalyzeManager                                   #
@@ -502,7 +549,8 @@ def analyze_pickup(pickup_id=pickup_id, output_folder=output_folder,            
     jdir =  manifest.job_directory                                                                 # Set job directory - where is experiment?
     with Platform('SLURM_LOCAL',job_directory=jdir) as platform:                                   # 
         analyzer_set = []                                                                          #
-        if(InsetChart == True):                                                                    # Analyze InsetChart 
+        if(InsetChart == True):     
+            from analyzers.habitat_analyzer import InsetChartAnalyzer                              # Analyze InsetChart 
             analyzer_set.append(InsetChartAnalyzer(expt_name=exp_name,                             #   -> InsetChartAnalyzer from habitat_analyzer
                                                    channels=channels_inset_chart,                  #
                                                    sweep_variables=sweep_variables,                #
@@ -510,11 +558,13 @@ def analyze_pickup(pickup_id=pickup_id, output_folder=output_folder,            
                                                    start_year = start_year,                        #
                                                    years_to_keep = burnin_years))                  #
         if(MonthlyReport == True):                                                                 # Analyze Monthly MalariaSummaryReport
+            from analyzers.habitat_analyzer import MonthlyAnalyzer                                 #
             analyzer_set.append(MonthlyAnalyzer(expt_name = exp_name,                              #   -> MonthlyAnalyzer from habitat_analyzer
                                                 sweep_variables=sweep_variables,                   #
                                                 working_dir=output_folder,                         #
                                                 years_to_keep=report_years))                       #
-        if(EventCounter == True): 
+        if(EventCounter == True):                                                                  # Analyze EventCounter Report
+            from analyzers.EventAnalyzer import EventCounterAnalyzer
             demo = pd.read_csv(os.path.join(manifest.input_dir,site_name,'demographics.csv'))
             nodes = [n for n in demo['node_id']]
             analyzer_set.append(EventCounterAnalyzer(exp_name = exp_name,
@@ -524,7 +574,11 @@ def analyze_pickup(pickup_id=pickup_id, output_folder=output_folder,            
                                                      events = events_to_record,
                                                      working_dir = output_folder,
                                                      start_day = (pickup_years-report_years)*365)) #
-            
+        if(AgeReport == True):                                                                     # Analyze Daily MalariaSummaryReport for Pop by Age
+            from analyzers.habitat_analyzer import AgeDistributionAnalyzer                         #
+            analyzer_set.append(AgeDistributionAnalyzer(expt_name=exp_name,                        #   -> AgeDistributionAnalyzer from habitat_analyzer
+                                                        sweep_variables=sweep_variables,           #
+                                                        working_dir=output_folder))                #
         manager = AnalyzeManager(configuration={},ids=[(pickup_id, ItemType.EXPERIMENT)],          # Create AnalyzerManager with required parameters
                                  analyzers=analyzer_set, partial_analyze_ok=True)                  #
         manager.analyze()                                                                          # Run analyze
@@ -535,31 +589,97 @@ def score_analyzed_pickup():                                                    
     ####################################################### All-Age Monthly Clinical Incidence #####
     ref_inc = pd.read_csv(os.path.join(manifest.input_dir,site_name,                               # Reference All-Age Monthly Clinical Incidence from incidence_file 
                                        "reference_data",incidence_file))                           #  
-    ref_inc['month'] = ref_inc['month'] % 12                                                       #   -> Convert to single monthly series
-    ref_inc['cases'] = ref_inc.groupby('month')['cases'].transform('mean')                         # 
-    ref_inc = ref_inc.drop_duplicates('month',keep="first")[['month','cases']]                     #
-    ref_inc['month'][ref_inc['month']==0] =12                                                      #
+    ref_inc['month'] = ref_inc['month'] % 12           
+    ref_inc['month'][ref_inc['month']==0] =12                                                      #   -> Convert to single monthly series
+    ref_inc['cases'] = ref_inc.groupby(['month'])['clinical_cases'].transform('mean') 
+    ref_inc['population'] = ref_inc.groupby(['month'])['population'].transform('mean')              # 
+    ref_inc = ref_inc.drop_duplicates('month',keep="first")[['month','cases','population']]        #
+                                                                                                    #
     cases_min = min(ref_inc['cases'])                                                              #
-    cases_max = max(ref_inc['cases'])                                                              #
-    ref_inc['cases_norm'] = (ref_inc['cases'])/(cases_max)                                         #   -> Normalize against maximum
-                                                                                                   #
+    ref_inc['cases_max'] = max(ref_inc['cases'])                                                              #
+    ref_inc['cases_norm'] = (ref_inc['cases'])/(ref_inc['cases_max'])                                         #   -> Normalize against maximum                                                                            
     sim_inc = pd.read_csv(os.path.join(output_folder,'AllAge_MonthlySummaryReport.csv'))           # Simulation Incidence from Monthly Malaria Summary Report
+    sim_inc['month'] = sim_inc['month'] % 12
+    sim_inc['month'][sim_inc['month']==0] = 12
+    
+    sim_inc = sim_inc.groupby(['month',
+                     'x_Temporary_Larval_Habitat',
+                     'scale_constant', 
+                     'scale_temp_rain', 
+                     'scale_water_veg'], as_index=False).agg({'Cases':'mean', 'Pop':'mean'})
+    sim_inc['c_max'] = sim_inc.groupby(['x_Temporary_Larval_Habitat',
+                                'scale_constant', 
+                                'scale_temp_rain', 
+                                'scale_water_veg'], as_index=False)['Cases'].transform('max')
+    sim_inc['c_norm'] = sim_inc['Cases']/sim_inc['c_max']
+    
+    comp = pd.merge(sim_inc,ref_inc, on = "month")
+    score_df = []
+    sv = ['month'] + sweep_variables
+    uniq_df = comp.groupby(sv).size().reset_index(name="Freq")
+    ll_inc = []
+    for r, row in uniq_df.iterrows():
+
+        mask0 = comp[sv[0]] == row[sv[0]]
+        mask1 = comp[sv[1]] == row[sv[1]]
+        mask2 = comp[sv[2]] == row[sv[2]]
+        mask3 = comp[sv[3]] == row[sv[3]]
+        mask4 = comp[sv[4]] == row[sv[4]]
+        mask = mask1 & mask2 & mask3 & mask4 & mask0
+        subset_df = comp[mask].reset_index()
+        ll = gamma_poisson(subset_df.population,subset_df.Pop,subset_df.cases_norm*subset_df.cases_max, subset_df.c_norm*subset_df.c_max)
+        ll_inc = ll_inc + [ll]
+   
+    uniq_df['ll_inc'] = ll_inc
+    inc_df = uniq_df.groupby(sweep_variables).agg({'ll_inc':'mean'})
+    
+    
     ################################################################### All-Age PCR Prevalence #####                                         
     ref_pcr_prev = pd.read_csv(os.path.join(manifest.input_dir,site_name,                          # Reference All-Age PCR Prevalence from pcr_prevalence_file (INDIE cross-sectional surveys, DHS/MIS)
                                             "reference_data",pcr_prevalence_file))                 # 
                                                                                                    #
     sim_pcr_prev = pd.read_csv(os.path.join(output_folder,'InsetChart.csv'))                       # Simulation PCR Prevalence from InsetChart
-    sim_pcr_prev = sim_pcr_prev[sim_pcr_prev['Time'] in ref_pcr_prev['sim_day']]                   #
-    sim_pcr_prev = sim_pcr_prev.groupby('x_Temporary_Larval_Habitat',                              #
-                                        'scale_constant',                                          #
-                                        'scale_temp_rain',                                         #
-                                        'scale_water_veg',                                         #
-                                        'Time')['PCR_Parsite_Prevalence'].transform('mean')        # Mean by sweep_variables
-    sim_pcr_prev.rename(columns={"Time":"sim_day"})                                                #
+    days = [d for d in ref_pcr_prev['sim_day'].unique()]
+    sim_pcr_prev = sim_pcr_prev[sim_pcr_prev['Time'].isin(days)]                                      #
+    #sim_pcr_prev = sim_pcr_prev.groupby(['x_Temporary_Larval_Habitat',                              #
+    #                                    'scale_constant',                                          #
+    #                                    'scale_temp_rain',                                         #
+    #                                    'scale_water_veg',                                         #
+    #                                    'Time']).transform('mean')                                # Mean by sweep_variables
+    sim_pcr_prev = sim_pcr_prev[['Time','x_Temporary_Larval_Habitat','scale_constant',
+                                'scale_temp_rain', 'scale_water_veg', 'PCR Parasite Prevalence',
+                                'Statistical Population']]
+    sim_pcr_prev=sim_pcr_prev.rename(columns={"Time":"sim_day", 
+                                 "Statistical Population":"population", 
+                                 "PCR Parasite Prevalence":"pcr_parasite_prev"})                   #
     comp = pd.merge(sim_pcr_prev, ref_pcr_prev, on = "sim_day")                                    #
-    print(comp)                                                                                    #
+    #print(comp)                                                                                    #
     ########################################################################## Perform scoring #####         
-    score_df = []                                                                                  # TO ADD
+    score_df = []          
+    sv = ['sim_day'] + sweep_variables                                                                        # TO ADD
+    uniq_df = comp.groupby(sv).size().reset_index(name='Freq')
+    #print(uniq_df)
+    ll_prev = []
+    for r, row in uniq_df.iterrows():
+
+        mask0 = comp[sv[0]] == row[sv[0]]
+        mask1 = comp[sv[1]] == row[sv[1]]
+        mask2 = comp[sv[2]] == row[sv[2]]
+        mask3 = comp[sv[3]] == row[sv[3]]
+        mask4 = comp[sv[4]] == row[sv[4]]
+        mask = mask1 & mask2 & mask3 & mask4 & mask0
+        subset_df = comp[mask].reset_index()
+        #print(subset_df)
+        ll_prev = ll_prev + [beta_binomial(subset_df.population, subset_df.population, 
+                                 subset_df.pcr_prevalence*subset_df.population, subset_df.pcr_parasite_prev*subset_df.population)]
+        #print(ll)
+    #print(len(ll_prev))
+    uniq_df['ll_prev'] = ll_prev
+    prev_df = uniq_df.groupby(sweep_variables).agg({'ll_prev':'mean'})
+    score_df = pd.merge(inc_df,prev_df, on= sweep_variables)
+    print(score_df)
+    score_df.to_csv(os.path.join(output_folder,"prevalence_log_likelihoods.csv"))
+    
     return score_df                                                                                #
 ####################################################################################################
 ####################################################################################################
@@ -598,12 +718,16 @@ if __name__ == "__main__":                                                      
         analyze_pickup(pickup_id=burnin_id, output_folder=output_folder,                            #
                        sweep_variables = sweep_variables,                                           #
                        InsetChart = IC,channels_inset_chart=channels_inset_chart,start_year = 1960, #
-                       MonthlyReport = True, report_years=report_years)                             #
+                       MonthlyReport = True, report_years=report_years,                             #
+                       AgeReport= False)                                                            #
     if step in ('calibrate','calibration'):                                                         # Analyze pickup and score against calibration targets
         analyze_pickup(pickup_id=pickup_id, output_folder=output_folder,                            #
                        sweep_variables = sweep_variables,                                           #
                        InsetChart=True,channels_inset_chart=channels_inset_chart,start_year = 2010, # 
-                       MonthlyReport=True, report_years=report_years)                               #
+                       MonthlyReport=True, report_years=report_years,                               #
+                       AgeReport=False)                                                             #
+        score_analyzed_pickup()
+    if step == 'score':
         score_analyzed_pickup()                                                                     #
     if (step == 'print_summary'):                                                                   # Print summary of sim specs
         print('Site:', site_name)                                                                   #
