@@ -1,0 +1,2 @@
+node_id,phase,sim_day,coverage,rounds,frequency,diagnostic,threshold,sensitivity,event_name,positive_test_event_name,received_test_event_name
+1,pickup,3285,1,52,7,FEVER,2,1,Temperature Check,Fever_Screen_Positive,Fever_Screen
