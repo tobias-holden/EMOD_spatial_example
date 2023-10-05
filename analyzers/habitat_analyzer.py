@@ -260,6 +260,3 @@ if __name__ == "__main__":
                                      analyzers=analyzer, partial_analyze_ok=True)
             # Run analyze
             manager.analyze()
-            
-
-
